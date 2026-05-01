@@ -37,9 +37,34 @@
 let scanner = null;
 let isScanning = false;
 let scanned = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
+let audioCtx = null;
 renderList();
 
+// 🔊 Инициализация аудио (обход блокировок iOS/Android)
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+// 🔊 Генерация короткого "пик"
+function playBeep() {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = 1200; // Частота звука
+    gain.gain.value = 0.3;      // Громкость
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.15);
+    osc.stop(audioCtx.currentTime + 0.15);
+  } catch(e) {}
+}
+
 function toggleScan() {
+  initAudio(); // Разблокируем звук по нажатию кнопки
   const btn = document.getElementById('scanBtn');
   const status = document.getElementById('status');
   if (!isScanning) {
@@ -85,6 +110,9 @@ function onScanSuccess(text) {
     data.scan_time = new Date().toLocaleString("ru-RU");
     scanned.push(data);
     localStorage.setItem('pkg_scan', JSON.stringify(scanned));
+    
+    playBeep(); // 🔊 Звук успешного сканирования
+    
     renderList();
     status.textContent = "✅ Принято: " + data.pkg_number;
     status.style.color = "#4CAF50";
