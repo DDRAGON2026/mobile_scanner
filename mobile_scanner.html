@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📦 Мобильный Сканер</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; }
+  h1 { text-align: center; font-size: 20px; margin: 10px 0; }
+  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; }
+  #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; }
+  #list { list-style: none; padding: 0; margin: 10px 0; max-height: 40vh; overflow-y: auto; }
+  #list li { background: #fff; padding: 10px; margin-bottom: 6px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 14px; }
+  .btn-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  button { padding: 12px 16px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; color: #fff; cursor: pointer; }
+  .btn-scan { background: #2196F3; width: 100%; max-width: 400px; margin: 10px auto; display: block; }
+  .btn-exp { background: #4CAF50; }
+  .btn-share { background: #FF9800; }
+  .btn-clear { background: #F44336; }
+  .err { color: #D32F2F; }
+</style>
+</head>
+<body>
+<h1>📦 Мобильный Учёт Посылок</h1>
+<div id="reader"></div>
+<button class="btn-scan" id="scanBtn" onclick="toggleScan()">📷 Начать сканирование</button>
+<div id="status">🟢 Готов к работе</div>
+<ul id="list"></ul>
+<div class="btn-row">
+  <button class="btn-exp" onclick="exportCSV()">📄 Скачать CSV</button>
+  <button class="btn-share" onclick="shareFile()">📤 Отправить</button>
+  <button class="btn-clear" onclick="clearData()">🗑 Очистить</button>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+let scanner = null;
+let isScanning = false;
+let scanned = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
+renderList();
+
+function toggleScan() {
+  const btn = document.getElementById('scanBtn');
+  const status = document.getElementById('status');
+  if (!isScanning) {
+    scanner = new Html5Qrcode("reader");
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onScanSuccess,
+      () => {}
+    ).then(() => {
+      isScanning = true;
+      btn.textContent = "⏹ Остановить";
+      btn.style.background = "#FF5722";
+      status.textContent = "🔍 Сканирую...";
+      status.style.color = "#2196F3";
+    }).catch(err => {
+      status.textContent = "❌ Ошибка камеры: " + err;
+      status.className = "err";
+    });
+  } else {
+    scanner.stop().then(() => {
+      isScanning = false;
+      btn.textContent = "📷 Начать сканирование";
+      btn.style.background = "#2196F3";
+      status.textContent = "🟢 Готов к работе";
+      status.style.color = "#4CAF50";
+      status.className = "";
+    });
+  }
+}
+
+function onScanSuccess(text) {
+  const status = document.getElementById('status');
+  try {
+    const data = JSON.parse(text);
+    if (!data.pkg_number) throw new Error("Нет номера");
+    const exists = scanned.some(s => s.pkg_number === data.pkg_number);
+    if (exists) {
+      status.textContent = "⚠️ Дубликат: " + data.pkg_number;
+      status.className = "err";
+      return;
+    }
+    data.scan_time = new Date().toLocaleString("ru-RU");
+    scanned.push(data);
+    localStorage.setItem('pkg_scan', JSON.stringify(scanned));
+    renderList();
+    status.textContent = "✅ Принято: " + data.pkg_number;
+    status.style.color = "#4CAF50";
+    status.className = "";
+  } catch (e) {
+    status.textContent = "❌ Неверный QR: " + e.message;
+    status.className = "err";
+  }
+}
+
+function renderList() {
+  const ul = document.getElementById('list');
+  ul.innerHTML = "";
+  scanned.slice().reverse().forEach(s => {
+    const li = document.createElement('li');
+    li.textContent = `📦 ${s.pkg_number} | ${s.recipient_name || '---'} | ${s.scan_time}`;
+    ul.appendChild(li);
+  });
+}
+
+function clearData() {
+  if (!confirm("Очистить все отсканированные данные?")) return;
+  scanned = [];
+  localStorage.removeItem('pkg_scan');
+  renderList();
+  document.getElementById('status').textContent = "🗑 Данные очищены";
+}
+
+function buildCSV() {
+  const BOM = "\uFEFF";
+  const headers = ["№ ПОСЫЛКИ","ФИО ПОЛУЧАТЕЛЯ","ВОЙСКОВАЯ ЧАСТЬ","ПОДРАЗДЕЛЕНИЕ","ПОЗЫВНОЙ","ТЕЛЕФОН ПОЛУЧАТЕЛЯ","ФИО ОТПРАВИТЕЛЯ","ТЕЛЕФОН ОТПРАВИТЕЛЯ","ДАТА СОЗДАНИЯ","ВРЕМЯ СКАНИРОВАНИЯ"];
+  let csv = BOM + headers.join(";") + "\n";
+  scanned.forEach(s => {
+    csv += [
+      s.pkg_number, s.recipient_name, s.unit, s.department,
+      s.callsign, s.recipient_phone, s.sender_name, s.sender_phone,
+      s.date_created, s.scan_time
+    ].map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(";") + "\n";
+  });
+  return csv;
+}
+
+function exportCSV() {
+  if (!scanned.length) return alert("Список пуст!");
+  const blob = new Blob([buildCSV()], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function shareFile() {
+  if (!scanned.length) return alert("Список пуст!");
+  const csv = buildCSV();
+  const file = new File([csv], `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`, { type: "text/csv" });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: "Учёт посылок" });
+    } catch (e) { if (e.name !== "AbortError") alert("Ошибка отправки: " + e.message); }
+  } else {
+    alert("Ваш браузер не поддерживает прямую отправку файлов. Используйте кнопку 'Скачать CSV' и отправьте файл вручную.");
+  }
+}
+</script>
+</body>
+</html>
