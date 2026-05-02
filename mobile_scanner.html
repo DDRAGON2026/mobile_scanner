@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>📦 Мобильный Сканер</title>
-<!-- 🔒 Защита: CSP, реферер, запрет встраивания -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: mediastream:; connect-src 'self';">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#2196F3">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,8 +12,8 @@
 <style>
   body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; -webkit-user-select: none; }
   h1 { text-align: center; font-size: 20px; margin: 10px 0; }
-  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; }
-  #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; }
+  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; min-height: 300px; }
+  #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; min-height: 24px; }
   #list { list-style: none; padding: 0; margin: 10px 0; max-height: 35vh; overflow-y: auto; }
   #list li { background: #fff; padding: 10px; margin-bottom: 6px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 14px; }
   .btn-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
@@ -26,6 +25,7 @@
   .btn-clear { background: #F44336; }
   .btn-pwa { background: #673AB7; display: none; margin: 10px auto; width: 100%; max-width: 400px; }
   .err { color: #D32F2F; }
+  .warn { color: #FF9800; }
 </style>
 </head>
 <body>
@@ -43,7 +43,7 @@
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
 <script>
-// 🔒 Защита от встраивания в iframe (clickjacking)
+// 🔒 Защита от встраивания в iframe
 if (window.top !== window.self) { window.top.location = window.self.location; }
 
 let scanner = null;
@@ -54,7 +54,7 @@ let deferredPrompt = null;
 renderList();
 initPWA();
 
-// 🔊 Звук: точная копия winsound.Beep(1200, 150) из десктопной версии
+// 🔊 Звук: точная копия winsound.Beep(1200, 150)
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -72,11 +72,19 @@ function playBeep() {
   } catch(e) {}
 }
 
-// 📷 Камера: оптимизация для распознавания с 20 см
+// 📷 Камера: стабильный запуск + расшифровка ошибок
 function toggleScan() {
   initAudio();
   const btn = document.getElementById('scanBtn');
   const status = document.getElementById('status');
+
+  // 🔒 Проверка HTTPS
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    status.textContent = "🔒 Камера работает только по HTTPS. Откройте GitHub Pages ссылку.";
+    status.className = "err";
+    return;
+  }
+
   if (!isScanning) {
     scanner = new Html5Qrcode("reader");
     const config = {
@@ -85,27 +93,34 @@ function toggleScan() {
       aspectRatio: 1.5,
       disableFlip: false
     };
-    const constraints = {
-      facingMode: "environment",
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      focusMode: "continuous",
-      advanced: [{ focusMode: "continuous" }]
-    };
+    // Упрощённые constraints для максимальной совместимости с Android/iOS
+    const constraints = { facingMode: "environment" };
+
     scanner.start(constraints, config, onScanSuccess, () => {})
     .then(() => {
       isScanning = true;
       btn.textContent = "⏹ Остановить"; btn.style.background = "#FF5722";
-      status.textContent = "🔍 Сканирую..."; status.style.color = "#2196F3";
+      status.textContent = "🔍 Сканирую... Держите QR в рамке (15-30 см)"; status.style.color = "#2196F3"; status.className = "";
     }).catch(err => {
-      status.textContent = "❌ Ошибка камеры: " + err.message; status.className = "err";
+      // Надёжный парсер ошибки любого типа
+      const raw = err?.message || err?.name || String(err);
+      let msg = "❌ Ошибка камеры: " + raw;
+      if (raw.includes("NotAllowed") || raw.includes("Permission") || raw.includes("denied")) {
+        msg = "🔒 Доступ к камере запрещён. Разрешите в настройках браузера или нажмите 🔒 в адресной строке.";
+      } else if (raw.includes("Overconstrained") || raw.includes("constraint")) {
+        msg = "⚠️ Камера не поддерживает запрошенный режим. Попробуйте Chrome или Safari.";
+      } else if (raw.includes("NotFound") || raw.includes("Devices")) {
+        msg = "📷 Камера не найдена. Проверьте подключение или разрешения.";
+      }
+      status.textContent = msg;
+      status.className = "err";
     });
   } else {
     scanner.stop().then(() => {
       isScanning = false;
       btn.textContent = "📷 Начать сканирование"; btn.style.background = "#2196F3";
       status.textContent = "🟢 Готов к работе"; status.style.color = "#4CAF50"; status.className = "";
-    });
+    }).catch(() => {});
   }
 }
 
@@ -115,7 +130,7 @@ function onScanSuccess(text) {
     const data = JSON.parse(text);
     if (!data.pkg_number) throw new Error("Нет номера");
     if (scanned.some(s => s.pkg_number === data.pkg_number)) {
-      status.textContent = "⚠️ Дубликат: " + data.pkg_number; status.className = "err"; return;
+      status.textContent = "⚠️ Дубликат: " + data.pkg_number; status.className = "warn"; return;
     }
     data.scan_time = new Date().toLocaleString("ru-RU");
     scanned.push(data);
@@ -124,7 +139,7 @@ function onScanSuccess(text) {
     renderList();
     status.textContent = "✅ Принято: " + data.pkg_number; status.style.color = "#4CAF50"; status.className = "";
   } catch (e) {
-    status.textContent = "❌ Неверный QR: " + e.message; status.className = "err";
+    status.textContent = "❌ Неверный QR: " + (e.message || "не JSON"); status.className = "err";
   }
 }
 
@@ -170,7 +185,7 @@ async function exportCSV() {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-    } catch (e) { if (e.name !== "AbortError") alert("Ошибка сохранения: " + e.message); }
+    } catch (e) { if (e.name !== "AbortError") alert("Ошибка сохранения: " + (e.message || String(e))); }
   } else {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = fileName;
@@ -178,14 +193,14 @@ async function exportCSV() {
   }
 }
 
-// 📤 Отправка (исправлена ошибка жеста)
+// 📤 Отправка (синхронный вызов для сохранения жеста)
 function shareFile() {
   if (!scanned.length) return alert("Список пуст!");
   const csv = buildCSV();
   const file = new File([csv], `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`, { type: "text/csv" });
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
     navigator.share({ files: [file], title: "Учёт посылок" })
-      .catch(err => { if (err.name !== "AbortError") alert("Ошибка отправки: " + err.message); });
+      .catch(err => { if (err.name !== "AbortError") alert("Ошибка отправки: " + (err.message || String(err))); });
   } else {
     alert("Браузер не поддерживает прямую отправку. Используйте 'Скачать CSV'.");
   }
@@ -213,7 +228,7 @@ function initPWA() {
   });
 }
 function installPWA() {
-  if (!deferredPrompt) return alert("Установка доступна только в Chrome/Edge при первом посещении. Добавьте страницу вручную через меню браузера → 'На главный экран'.");
+  if (!deferredPrompt) return alert("Установка доступна в Chrome/Edge. Либо нажмите меню браузера → 'Добавить на главный экран'.");
   deferredPrompt.prompt();
   deferredPrompt.userChoice.then(res => {
     if (res.outcome === 'accepted') document.getElementById('pwaBtn').style.display = 'none';
