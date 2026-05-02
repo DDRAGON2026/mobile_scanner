@@ -9,10 +9,12 @@
 <meta name="theme-color" content="#2196F3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
 <style>
   body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; -webkit-user-select: none; }
   h1 { text-align: center; font-size: 20px; margin: 10px 0; }
-  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; min-height: 300px; }
+  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; min-height: 320px; position: relative; }
+  #reader video, #reader canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
   #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; min-height: 24px; }
   #list { list-style: none; padding: 0; margin: 10px 0; max-height: 35vh; overflow-y: auto; }
   #list li { background: #fff; padding: 10px; margin-bottom: 6px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 14px; }
@@ -24,8 +26,7 @@
   .btn-share { background: #FF9800; }
   .btn-clear { background: #F44336; }
   .btn-pwa { background: #673AB7; display: none; margin: 10px auto; width: 100%; max-width: 400px; }
-  .err { color: #D32F2F; }
-  .warn { color: #FF9800; }
+  .err { color: #D32F2F; } .warn { color: #FF9800; }
 </style>
 </head>
 <body>
@@ -43,18 +44,13 @@
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
 <script>
-// 🔒 Защита от встраивания в iframe
 if (window.top !== window.self) { window.top.location = window.self.location; }
 
-let scanner = null;
-let isScanning = false;
+let scanner = null, isScanning = false;
 let scanned = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
-let audioCtx = null;
-let deferredPrompt = null;
-renderList();
-initPWA();
+let audioCtx = null, deferredPrompt = null;
+renderList(); initPWA();
 
-// 🔊 Звук: точная копия winsound.Beep(1200, 150)
 function initAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -62,8 +58,7 @@ function initAudio() {
 function playBeep() {
   if (!audioCtx) return;
   try {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.type = 'sine'; osc.frequency.value = 1200;
     gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
@@ -72,55 +67,37 @@ function playBeep() {
   } catch(e) {}
 }
 
-// 📷 Камера: стабильный запуск + расшифровка ошибок
 function toggleScan() {
   initAudio();
-  const btn = document.getElementById('scanBtn');
-  const status = document.getElementById('status');
-
-  // 🔒 Проверка HTTPS
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    status.textContent = "🔒 Камера работает только по HTTPS. Откройте GitHub Pages ссылку.";
-    status.className = "err";
-    return;
+  const btn = document.getElementById('scanBtn'), status = document.getElementById('status');
+  if (location.protocol !== 'https:' && !['localhost','127.0.0.1'].includes(location.hostname)) {
+    status.textContent = "🔒 Камера работает только по HTTPS. Используйте GitHub Pages ссылку.";
+    status.className = "err"; return;
   }
 
   if (!isScanning) {
     scanner = new Html5Qrcode("reader");
-    const config = {
-      fps: 15,
-      qrbox: { width: 300, height: 300 },
-      aspectRatio: 1.5,
-      disableFlip: false
-    };
-    // Упрощённые constraints для максимальной совместимости с Android/iOS
-    const constraints = { facingMode: "environment" };
-
-    scanner.start(constraints, config, onScanSuccess, () => {})
-    .then(() => {
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 15, qrbox: { width: 280, height: 280 }, aspectRatio: 1.5 },
+      onScanSuccess, () => {}
+    ).then(() => {
       isScanning = true;
       btn.textContent = "⏹ Остановить"; btn.style.background = "#FF5722";
       status.textContent = "🔍 Сканирую... Держите QR в рамке (15-30 см)"; status.style.color = "#2196F3"; status.className = "";
     }).catch(err => {
-      // Надёжный парсер ошибки любого типа
       const raw = err?.message || err?.name || String(err);
       let msg = "❌ Ошибка камеры: " + raw;
-      if (raw.includes("NotAllowed") || raw.includes("Permission") || raw.includes("denied")) {
-        msg = "🔒 Доступ к камере запрещён. Разрешите в настройках браузера или нажмите 🔒 в адресной строке.";
-      } else if (raw.includes("Overconstrained") || raw.includes("constraint")) {
-        msg = "⚠️ Камера не поддерживает запрошенный режим. Попробуйте Chrome или Safari.";
-      } else if (raw.includes("NotFound") || raw.includes("Devices")) {
-        msg = "📷 Камера не найдена. Проверьте подключение или разрешения.";
-      }
-      status.textContent = msg;
-      status.className = "err";
+      if (raw.includes("NotAllowed") || raw.includes("Permission")) msg = "🔒 Доступ к камере запрещён. Разрешите в настройках браузера.";
+      else if (raw.includes("NotFound")) msg = "📷 Камера не найдена. Проверьте устройство.";
+      status.textContent = msg; status.className = "err";
     });
   } else {
     scanner.stop().then(() => {
       isScanning = false;
       btn.textContent = "📷 Начать сканирование"; btn.style.background = "#2196F3";
       status.textContent = "🟢 Готов к работе"; status.style.color = "#4CAF50"; status.className = "";
-    }).catch(() => {});
+    }).catch(()=>{});
   }
 }
 
@@ -133,10 +110,8 @@ function onScanSuccess(text) {
       status.textContent = "⚠️ Дубликат: " + data.pkg_number; status.className = "warn"; return;
     }
     data.scan_time = new Date().toLocaleString("ru-RU");
-    scanned.push(data);
-    localStorage.setItem('pkg_scan', JSON.stringify(scanned));
-    playBeep();
-    renderList();
+    scanned.push(data); localStorage.setItem('pkg_scan', JSON.stringify(scanned));
+    playBeep(); renderList();
     status.textContent = "✅ Принято: " + data.pkg_number; status.style.color = "#4CAF50"; status.className = "";
   } catch (e) {
     status.textContent = "❌ Неверный QR: " + (e.message || "не JSON"); status.className = "err";
@@ -151,84 +126,64 @@ function renderList() {
     ul.appendChild(li);
   });
 }
-
 function clearData() {
-  if (!confirm("Очистить все отсканированные данные?")) return;
+  if (!confirm("Очистить все данные?")) return;
   scanned = []; localStorage.removeItem('pkg_scan'); renderList();
   document.getElementById('status').textContent = "🗑 Данные очищены";
 }
-
 function buildCSV() {
   const BOM = "\uFEFF";
-  const headers = ["№ ПОСЫЛКИ","ФИО ПОЛУЧАТЕЛЯ","ВОЙСКОВАЯ ЧАСТЬ","ПОДРАЗДЕЛЕНИЕ","ПОЗЫВНОЙ","ТЕЛЕФОН ПОЛУЧАТЕЛЯ","ФИО ОТПРАВИТЕЛЯ","ТЕЛЕФОН ОТПРАВИТЕЛЯ","ДАТА СОЗДАНИЯ","ВРЕМЯ СКАНИРОВАНИЯ"];
-  let csv = BOM + headers.join(";") + "\n";
+  const h = ["№ ПОСЫЛКИ","ФИО ПОЛУЧАТЕЛЯ","ВОЙСКОВАЯ ЧАСТЬ","ПОДРАЗДЕЛЕНИЕ","ПОЗЫВНОЙ","ТЕЛЕФОН ПОЛУЧАТЕЛЯ","ФИО ОТПРАВИТЕЛЯ","ТЕЛЕФОН ОТПРАВИТЕЛЯ","ДАТА СОЗДАНИЯ","ВРЕМЯ СКАНИРОВАНИЯ"];
+  let csv = BOM + h.join(";") + "\n";
   scanned.forEach(s => {
-    csv += [s.pkg_number, s.recipient_name, s.unit, s.department, s.callsign, s.recipient_phone, s.sender_name, s.sender_phone, s.date_created, s.scan_time]
+    csv += [s.pkg_number,s.recipient_name,s.unit,s.department,s.callsign,s.recipient_phone,s.sender_name,s.sender_phone,s.date_created,s.scan_time]
       .map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(";") + "\n";
   });
   return csv;
 }
-
-// 💾 Сохранение с выбором папки/хранилища
 async function exportCSV() {
   if (!scanned.length) return alert("Список пуст!");
-  const csvContent = buildCSV();
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const fileName = `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`;
-  
+  const blob = new Blob([buildCSV()], {type:"text/csv;charset=utf-8;"});
+  const name = `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`;
   if (window.showSaveFilePicker) {
     try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: fileName,
-        types: [{ description: "CSV файл", accept: { "text/csv": [".csv"] } }]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    } catch (e) { if (e.name !== "AbortError") alert("Ошибка сохранения: " + (e.message || String(e))); }
+      const h = await window.showSaveFilePicker({suggestedName:name, types:[{description:"CSV", accept:{"text/csv":[".csv"]}}]});
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+    } catch(e) { if(e.name!=="AbortError") alert("Ошибка: "+(e.message||e)); }
   } else {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = fileName;
-    a.click(); URL.revokeObjectURL(url);
+    const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
   }
 }
-
-// 📤 Отправка (синхронный вызов для сохранения жеста)
 function shareFile() {
   if (!scanned.length) return alert("Список пуст!");
-  const csv = buildCSV();
-  const file = new File([csv], `Скан_посылок_${new Date().toISOString().slice(0,10)}.csv`, { type: "text/csv" });
-  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: "Учёт посылок" })
-      .catch(err => { if (err.name !== "AbortError") alert("Ошибка отправки: " + (err.message || String(err))); });
-  } else {
-    alert("Браузер не поддерживает прямую отправку. Используйте 'Скачать CSV'.");
-  }
+  const file = new File([buildCSV()], `Скан_${new Date().toISOString().slice(0,10)}.csv`, {type:"text/csv"});
+  if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+    navigator.share({files:[file], title:"Учёт посылок"}).catch(e=>{if(e.name!=="AbortError")alert("Ошибка: "+(e.message||e))});
+  } else alert("Браузер не поддерживает отправку файлов. Используйте 'Скачать CSV'.");
 }
 
-// 📲 PWA: Добавление на главный экран
 function initPWA() {
-  const manifest = {
-    name: "Мобильный Сканер Посылок", short_name: "Сканер", start_url: ".", display: "standalone",
-    background_color: "#f5f5f5", theme_color: "#2196F3",
-    icons: [{ src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>", sizes: "192x192", type: "image/svg+xml" }]
-  };
-  const swCode = `self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));`;
-  
-  const mBlob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-  const sBlob = new Blob([swCode], {type: 'application/javascript'});
-  document.head.appendChild(Object.assign(document.createElement('link'), {rel:'manifest', href: URL.createObjectURL(mBlob)}));
-  
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register(URL.createObjectURL(sBlob)).catch(()=>{});
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
   }
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault(); deferredPrompt = e;
     document.getElementById('pwaBtn').style.display = 'block';
   });
+  // Fallback для iOS и старых браузеров
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (isIOS || !('beforeinstallprompt' in window)) {
+    const btn = document.getElementById('pwaBtn');
+    btn.style.display = 'block';
+    btn.textContent = '📲 Как добавить на экран';
+    btn.onclick = () => alert(
+      isIOS ? "iPhone/iPad:\n1. Нажмите 'Поделиться' (квадрат со стрелкой)\n2. Выберите 'На экран «Домой»'\n3. Готово!" 
+            : "Android:\n1. Нажмите ⋮ в браузере\n2. Выберите 'Добавить на гл. экран'\n3. Готово!"
+    );
+  }
 }
 function installPWA() {
-  if (!deferredPrompt) return alert("Установка доступна в Chrome/Edge. Либо нажмите меню браузера → 'Добавить на главный экран'.");
+  if (!deferredPrompt) return;
   deferredPrompt.prompt();
   deferredPrompt.userChoice.then(res => {
     if (res.outcome === 'accepted') document.getElementById('pwaBtn').style.display = 'none';
