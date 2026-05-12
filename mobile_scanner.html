@@ -17,6 +17,7 @@
   button { padding: 12px 16px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; color: #fff; cursor: pointer; transition: opacity 0.2s; flex: 1; }
   button:active { opacity: 0.8; }
   .btn-scan { background: #2196F3; width: 100%; max-width: 400px; margin: 10px auto; display: block; }
+  .btn-torch { background: #607D8B; width: 100%; max-width: 400px; margin: 5px auto 10px; display: none; }
   .btn-exp { background: #4CAF50; }
   .btn-share { background: #FF9800; }
   .btn-clear { background: #F44336; }
@@ -31,7 +32,6 @@
 
 <h1>📦 Мобильный Учёт</h1>
 
-<!-- Вкладки (теперь кнопки) -->
 <div class="mode-switch">
   <button class="mode-btn active" onclick="setMode('receive')" id="btn-receive">📥 Приемка</button>
   <button class="mode-btn" onclick="setMode('issue')" id="btn-issue">📤 Выдача</button>
@@ -39,6 +39,7 @@
 
 <div id="reader"></div>
 <button class="btn-scan" id="scanBtn" onclick="toggleScan()">📷 Начать сканирование</button>
+<button class="btn-torch" id="torchBtn" onclick="toggleTorch()">🔦 Фонарик</button>
 <div id="status">🟢 Готов к работе</div>
 
 <div class="list-container">
@@ -56,7 +57,6 @@
   <button class="btn-clear" onclick="clearIssueData()">🗑 Очистить список</button>
 </div>
 
-<!-- Подключаем библиотеку с параметром версии, чтобы сбросить кэш -->
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js?v=3"></script>
 
 <script>
@@ -65,8 +65,9 @@ let currentMode = 'receive';
 let scannedData = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
 let issueList = JSON.parse(localStorage.getItem('pkg_issue') || '[]');
 let audioCtx = null;
+let videoTrack = null;
+let torchOn = false;
 
-// Проверка загрузки библиотеки
 window.onload = function() {
     if (typeof Html5Qrcode === 'undefined') {
         document.getElementById('status').textContent = "❌ ОШИБКА: Нет интернета или библиотека заблокирована.";
@@ -107,7 +108,7 @@ function playBeep() {
 
 function toggleScan() {
   initAudio();
-  const btn = document.getElementById('scanBtn'), status = document.getElementById('status');
+  const btn = document.getElementById('scanBtn'), status = document.getElementById('status'), torchBtn = document.getElementById('torchBtn');
   
   if (typeof Html5Qrcode === 'undefined') {
       status.textContent = "❌ Библиотека не загружена"; status.className = "err"; return;
@@ -123,15 +124,68 @@ function toggleScan() {
       isScanning = true;
       btn.textContent = "⏹ Остановить"; btn.style.background = "#FF5722";
       status.textContent = "🔍 Сканирую..."; status.style.color = "#2196F3"; status.className = "";
+      
+      // 🔦 Показываем кнопку фонарика и сохраняем видео трек
+      torchBtn.style.display = "block";
+      torchOn = false;
+      torchBtn.textContent = "🔦 Фонарик";
+      torchBtn.style.background = "#607D8B";
+      
+      // Получаем доступ к видео треку для фонарика
+      const videoElement = document.querySelector("#reader video");
+      if (videoElement && videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getVideoTracks();
+        if (tracks.length > 0) {
+          videoTrack = tracks[0];
+        }
+      }
     }).catch(err => {
       status.textContent = "❌ Ошибка камеры: " + err; status.className = "err";
     });
   } else {
+    // Выключаем фонарик при остановке
+    if (videoTrack && torchOn) {
+      toggleTorch();
+    }
+    videoTrack = null;
+    
     scanner.stop().then(() => {
       isScanning = false;
       btn.textContent = "📷 Начать сканирование"; btn.style.background = "#2196F3";
-      status.textContent = currentMode === 'receive' ? "🟢 Готов к Приемке" : "🔵 Готов к Выдаче"; status.style.color = "#4CAF50"; status.className = "";
+      torchBtn.style.display = "none";
+      status.textContent = currentMode === 'receive' ? "🟢 Готов к Приемке" : "🔵 Готов к Выдаче"; 
+      status.style.color = "#4CAF50"; status.className = "";
     }).catch(()=>{});
+  }
+}
+
+function toggleTorch() {
+  if (!videoTrack) {
+    alert("Видео трек не найден. Перезапустите сканирование.");
+    return;
+  }
+  
+  const capabilities = videoTrack.getCapabilities?.();
+  if (!capabilities || !capabilities.torch) {
+    alert("Фонарик не поддерживается на этом устройстве или в этом браузере.");
+    return;
+  }
+  
+  try {
+    torchOn = !torchOn;
+    videoTrack.applyConstraints({
+      advanced: [{ torch: torchOn }]
+    }).then(() => {
+      const torchBtn = document.getElementById('torchBtn');
+      torchBtn.textContent = torchOn ? "🔦 Выкл" : "🔦 Фонарик";
+      torchBtn.style.background = torchOn ? "#FF9800" : "#607D8B";
+    }).catch(err => {
+      alert("Невозможно включить вспышку: " + err.message);
+      torchOn = false;
+    });
+  } catch (e) {
+    alert("Ошибка фонарика: " + e.message);
+    torchOn = false;
   }
 }
 
