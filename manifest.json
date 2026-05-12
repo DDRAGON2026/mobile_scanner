@@ -1,20 +1,265 @@
-{
-  "name": "Мобильный Сканер Посылок",
-  "short_name": "Сканер",
-  "start_url": "./mobile_scanner.html",
-  "display": "standalone",
-  "background_color": "#f5f5f5",
-  "theme_color": "#2196F3",
-  "icons": [
-    {
-      "src": "https://img.icons8.com/fluency/192/box.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "https://img.icons8.com/fluency/512/box.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
-  ]
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📦 Мобильный Сканер</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: ; media-src 'self' blob: mediastream:; connect-src 'self';">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#2196F3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; -webkit-user-select: none; }
+  h1 { text-align: center; font-size: 20px; margin: 10px 0; }
+  #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; min-height: 320px; position: relative; }
+  #reader video, #reader canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
+  #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; min-height: 24px; }
+  .list-container { max-height: 35vh; overflow-y: auto; margin: 10px 0; }
+  .list-item { background: #fff; padding: 10px; margin-bottom: 6px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 14px; display: flex; justify-content: space-between; }
+  .list-item span { font-weight: bold; }
+  .btn-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  button { padding: 12px 16px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; color: #fff; cursor: pointer; transition: opacity 0.2s; flex: 1; }
+  button:active { opacity: 0.8; }
+  .btn-scan { background: #2196F3; width: 100%; max-width: 400px; margin: 10px auto; display: block; }
+  .btn-exp { background: #4CAF50; }
+  .btn-share { background: #FF9800; }
+  .btn-clear { background: #F44336; }
+  .btn-pwa { background: #673AB7; display: none; margin: 10px auto; width: 100%; max-width: 400px; }
+  .btn-torch { background: #607D8B; width: 100%; max-width: 400px; margin: 5px auto 10px; display: block; }
+  .err { color: #D32F2F; } .warn { color: #FF9800; }
+  .mode-switch { display: flex; background: #ddd; border-radius: 20px; margin-bottom: 15px; padding: 4px; }
+  .mode-btn { flex: 1; text-align: center; padding: 10px; border-radius: 16px; color: #666; cursor: pointer; transition: 0.3s; }
+  .mode-btn.active { background: #fff; color: #2196F3; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+</style>
+</head>
+<body>
+
+<h1>📦 Мобильный Учёт</h1>
+
+<div class="mode-switch">
+  <div class="mode-btn active" onclick="setMode('receive')" id="btn-receive">📥 Приемка</div>
+  <div class="mode-btn" onclick="setMode('issue')" id="btn-issue">📤 Выдача</div>
+</div>
+
+<div id="reader"></div>
+<button class="btn-scan" id="scanBtn" onclick="toggleScan()">📷 Начать сканирование</button>
+<button class="btn-torch" id="torchBtn" onclick="toggleTorch()" style="display:none;">🔦 Фонарик</button>
+<button class="btn-pwa" id="pwaBtn" onclick="installPWA()">📲 Добавить на главный экран</button>
+<div id="status">🟢 Готов к работе</div>
+
+<div class="list-container">
+  <ul id="list"></ul>
+</div>
+
+<div class="btn-row" id="btn-receive-group">
+  <button class="btn-exp" onclick="exportCSV()">📄 Скачать CSV</button>
+  <button class="btn-share" onclick="shareFile()">📤 Отправить</button>
+  <button class="btn-clear" onclick="clearData()">🗑 Очистить</button>
+</div>
+
+<div class="btn-row" id="btn-issue-group" style="display:none;">
+  <button class="btn-exp" onclick="exportIssueCSV()">📄 Скачать Акт Выдачи</button>
+  <button class="btn-clear" onclick="clearIssueData()">🗑 Очистить список</button>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
+<script>
+let scanner = null, isScanning = false;
+let currentMode = 'receive';
+let scannedData = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
+let issueList = JSON.parse(localStorage.getItem('pkg_issue') || '[]');
+let audioCtx = null, deferredPrompt = null, videoTrack = null, torchOn = false;
+
+renderList(); initPWA();
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-receive').classList.toggle('active', mode === 'receive');
+  document.getElementById('btn-issue').classList.toggle('active', mode === 'issue');
+  document.getElementById('btn-receive-group').style.display = mode === 'receive' ? 'flex' : 'none';
+  document.getElementById('btn-issue-group').style.display = mode === 'issue' ? 'flex' : 'none';
+  renderList();
+  document.getElementById('status').textContent = mode === 'receive' ? "🟢 Режим: Приемка" : "🔵 Режим: Выдача";
 }
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function playBeep() {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = 'sine'; osc.frequency.value = 1200;
+    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+  } catch(e) {}
+}
+
+function toggleScan() {
+  initAudio();
+  const btn = document.getElementById('scanBtn'), status = document.getElementById('status'), torchBtn = document.getElementById('torchBtn');
+  if (location.protocol !== 'https:' && !['localhost','127.0.0.1'].includes(location.hostname)) {
+    status.textContent = "🔒 Требуется HTTPS."; status.className = "err"; return;
+  }
+
+  if (!isScanning) {
+    scanner = new Html5Qrcode("reader");
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 15, qrbox: { width: 280, height: 280 }, aspectRatio: 1.5 },
+      onScanSuccess, () => {}
+    ).then(() => {
+      isScanning = true;
+      btn.textContent = "⏹ Остановить"; btn.style.background = "#FF5722";
+      status.textContent = "🔍 Сканирую..."; status.style.color = "#2196F3"; status.className = "";
+      torchBtn.style.display = "block";
+      torchOn = false; torchBtn.textContent = "🔦 Фонарик"; torchBtn.style.background = "#607D8B";
+      
+      // Сохраняем трек для фонарика
+      const videoEl = document.querySelector("#reader video");
+      if(videoEl && videoEl.srcObject) {
+        videoTrack = videoEl.srcObject.getVideoTracks()[0];
+      }
+    }).catch(err => {
+      const raw = err?.message || err?.name || String(err);
+      let msg = "❌ Ошибка камеры: " + raw;
+      if (raw.includes("NotAllowed") || raw.includes("Permission")) msg = "🔒 Доступ запрещён.";
+      status.textContent = msg; status.className = "err";
+    });
+  } else {
+    if(videoTrack && torchOn) toggleTorch(); // Выключить фонарик при остановке
+    scanner.stop().then(() => {
+      isScanning = false; videoTrack = null;
+      btn.textContent = "📷 Начать сканирование"; btn.style.background = "#2196F3";
+      torchBtn.style.display = "none";
+      status.textContent = currentMode === 'receive' ? "🟢 Готов к Приемке" : "🔵 Готов к Выдаче"; status.style.color = "#4CAF50"; status.className = "";
+    }).catch(()=>{});
+  }
+}
+
+function toggleTorch() {
+  if (!videoTrack) return;
+  const capabilities = videoTrack.getCapabilities?.() || {};
+  if (!capabilities.torch) {
+    alert("Фонарик не поддерживается на этом устройстве.");
+    return;
+  }
+  torchOn = !torchOn;
+  videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+  const torchBtn = document.getElementById('torchBtn');
+  torchBtn.textContent = torchOn ? "🔦 Выкл" : "🔦 Фонарик";
+  torchBtn.style.background = torchOn ? "#FF9800" : "#607D8B";
+}
+
+function onScanSuccess(text) {
+  const status = document.getElementById('status');
+  try {
+    const data = JSON.parse(text);
+    if (!data.pkg_number) throw new Error("Нет номера");
+
+    if (currentMode === 'receive') {
+      if (scannedData.some(s => s.pkg_number === data.pkg_number)) {
+        status.textContent = "⚠️ Уже в списке"; status.className = "warn"; return;
+      }
+      data.scan_time = new Date().toLocaleString("ru-RU");
+      scannedData.push(data);
+      localStorage.setItem('pkg_scan', JSON.stringify(scannedData));
+      playBeep();
+      status.textContent = "✅ Принято: " + data.pkg_number; status.style.color = "#4CAF50"; status.className = "";
+    } else {
+      if (issueList.some(s => s.pkg_number === data.pkg_number)) {
+        status.textContent = "⚠️ Уже в списке"; status.className = "warn"; return;
+      }
+      const issueItem = { pkg_number: data.pkg_number, time: new Date().toLocaleString("ru-RU") };
+      issueList.push(issueItem);
+      localStorage.setItem('pkg_issue', JSON.stringify(issueList));
+      playBeep();
+      status.textContent = "✅ В выдачу: " + data.pkg_number; status.style.color = "#FF9800"; status.className = "";
+    }
+    renderList();
+  } catch (e) {
+    status.textContent = "❌ Ошибка QR"; status.className = "err";
+  }
+}
+
+function renderList() {
+  const ul = document.getElementById('list'); ul.innerHTML = "";
+  if (currentMode === 'receive') {
+    scannedData.slice().reverse().forEach(s => {
+      const li = document.createElement('li'); li.className = 'list-item';
+      li.innerHTML = `<span>📦 ${s.pkg_number}</span> <span>${s.recipient_name || '---'}</span>`;
+      ul.appendChild(li);
+    });
+  } else {
+    issueList.slice().reverse().forEach(s => {
+      const li = document.createElement('li'); li.className = 'list-item';
+      li.innerHTML = `<span>📤 ${s.pkg_number}</span> <span>${s.time}</span>`;
+      ul.appendChild(li);
+    });
+  }
+}
+
+function clearData() {
+  if (!confirm("Очистить данные приемки?")) return;
+  scannedData = []; localStorage.removeItem('pkg_scan'); renderList();
+  document.getElementById('status').textContent = "🗑 Очищено";
+}
+function clearIssueData() {
+  if (!confirm("Очистить список выдачи?")) return;
+  issueList = []; localStorage.removeItem('pkg_issue'); renderList();
+  document.getElementById('status').textContent = "🗑 Очищено";
+}
+
+function buildCSV() {
+  const BOM = "\uFEFF";
+  const h = ["№ ПОСЫЛКИ","ФИО ПОЛУЧАТЕЛЯ","ВОЙСКОВАЯ ЧАСТЬ","ПОДРАЗДЕЛЕНИЕ","ПОЗЫВНОЙ","ТЕЛЕФОН ПОЛУЧАТЕЛЯ","ФИО ОТПРАВИТЕЛЯ","ТЕЛЕФОН ОТПРАВИТЕЛЯ","ДАТА СОЗДАНИЯ","ВРЕМЯ СКАНИРОВАНИЯ"];
+  let csv = BOM + h.join(";") + "\n";
+  scannedData.forEach(s => {
+    csv += [s.pkg_number,s.recipient_name,s.unit,s.department,s.callsign,s.recipient_phone,s.sender_name,s.sender_phone,s.date_created,s.scan_time]
+      .map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(";") + "\n";
+  });
+  return csv;
+}
+function exportCSV() {
+  if (!scannedData.length) return alert("Список пуст!");
+  const blob = new Blob([buildCSV()], {type:"text/csv;charset=utf-8;"});
+  const name = `Скан_Приемка_${new Date().toISOString().slice(0,10)}.csv`;
+  const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
+}
+function shareFile() {
+  if (!scannedData.length) return alert("Список пуст!");
+  const file = new File([buildCSV()], `Скан_Приемка_${new Date().toISOString().slice(0,10)}.csv`, {type:"text/csv"});
+  if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+    navigator.share({files:[file], title:"Учёт Посылок (Приемка)"}).catch(e=>{if(e.name!=="AbortError")alert("Ошибка: "+(e.message||e))});
+  } else alert("Браузер не поддерживает отправку файлов.");
+}
+
+function buildIssueCSV() {
+  const BOM = "\uFEFF";
+  const h = ["№ ПОСЫЛКИ","ДАТА И ВРЕМЯ ВЫДАЧИ"];
+  let csv = BOM + h.join(";") + "\n";
+  issueList.forEach(s => { csv += `"${s.pkg_number}";"${s.time}"\n`; });
+  return csv;
+}
+function exportIssueCSV() {
+  if (!issueList.length) return alert("Список пуст!");
+  const blob = new Blob([buildIssueCSV()], {type:"text/csv;charset=utf-8;"});
+  const name = `Скан_Выдача_${new Date().toISOString().slice(0,10)}.csv`;
+  const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
+}
+
+function initPWA() {
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); deferredPrompt = e;
+    document.getElementById('pwaBtn').style.display = 'block';
+  });
+}
+</script>
+</body>
+</html>
