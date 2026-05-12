@@ -4,12 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>📦 Мобильный Сканер</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: ; media-src 'self' blob: mediastream:; connect-src 'self';">
-<meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#2196F3">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest.json">
 <style>
   body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; -webkit-user-select: none; }
   h1 { text-align: center; font-size: 20px; margin: 10px 0; }
@@ -26,12 +20,10 @@
   .btn-exp { background: #4CAF50; }
   .btn-share { background: #FF9800; }
   .btn-clear { background: #F44336; }
-  .btn-pwa { background: #673AB7; display: none; margin: 10px auto; width: 100%; max-width: 400px; }
   .err { color: #D32F2F; } .warn { color: #FF9800; }
   
-  /* Переключатель режимов */
   .mode-switch { display: flex; background: #ddd; border-radius: 20px; margin-bottom: 15px; padding: 4px; }
-  .mode-btn { flex: 1; text-align: center; padding: 10px; border-radius: 16px; color: #666; cursor: pointer; transition: 0.3s; }
+  .mode-btn { flex: 1; text-align: center; padding: 10px; border-radius: 16px; color: #666; cursor: pointer; transition: 0.3s; border: none; background: transparent; }
   .mode-btn.active { background: #fff; color: #2196F3; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
 </style>
 </head>
@@ -39,15 +31,14 @@
 
 <h1>📦 Мобильный Учёт</h1>
 
-<!-- Переключатель режимов -->
+<!-- Вкладки (теперь кнопки) -->
 <div class="mode-switch">
-  <div class="mode-btn active" onclick="setMode('receive')" id="btn-receive">📥 Приемка</div>
-  <div class="mode-btn" onclick="setMode('issue')" id="btn-issue">📤 Выдача</div>
+  <button class="mode-btn active" onclick="setMode('receive')" id="btn-receive">📥 Приемка</button>
+  <button class="mode-btn" onclick="setMode('issue')" id="btn-issue">📤 Выдача</button>
 </div>
 
 <div id="reader"></div>
 <button class="btn-scan" id="scanBtn" onclick="toggleScan()">📷 Начать сканирование</button>
-<button class="btn-pwa" id="pwaBtn" onclick="installPWA()">📲 Добавить на главный экран</button>
 <div id="status">🟢 Готов к работе</div>
 
 <div class="list-container">
@@ -65,24 +56,37 @@
   <button class="btn-clear" onclick="clearIssueData()">🗑 Очистить список</button>
 </div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
+<!-- Подключаем библиотеку с параметром версии, чтобы сбросить кэш -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js?v=3"></script>
+
 <script>
 let scanner = null, isScanning = false;
-let currentMode = 'receive'; // 'receive' or 'issue'
+let currentMode = 'receive'; 
 let scannedData = JSON.parse(localStorage.getItem('pkg_scan') || '[]');
 let issueList = JSON.parse(localStorage.getItem('pkg_issue') || '[]');
-let audioCtx = null, deferredPrompt = null;
+let audioCtx = null;
 
-renderList(); initPWA();
+// Проверка загрузки библиотеки
+window.onload = function() {
+    if (typeof Html5Qrcode === 'undefined') {
+        document.getElementById('status').textContent = "❌ ОШИБКА: Нет интернета или библиотека заблокирована.";
+        document.getElementById('status').className = "err";
+        alert("Не удалось загрузить библиотеку сканера. Проверьте интернет!");
+    }
+    renderList();
+};
 
 function setMode(mode) {
   currentMode = mode;
-  document.getElementById('btn-receive').classList.toggle('active', mode === 'receive');
-  document.getElementById('btn-issue').classList.toggle('active', mode === 'issue');
+  document.getElementById('btn-receive').className = mode === 'receive' ? 'mode-btn active' : 'mode-btn';
+  document.getElementById('btn-issue').className = mode === 'issue' ? 'mode-btn active' : 'mode-btn';
+  
   document.getElementById('btn-receive-group').style.display = mode === 'receive' ? 'flex' : 'none';
   document.getElementById('btn-issue-group').style.display = mode === 'issue' ? 'flex' : 'none';
+  
   renderList();
   document.getElementById('status').textContent = mode === 'receive' ? "🟢 Режим: Приемка" : "🔵 Режим: Выдача";
+  document.getElementById('status').className = "";
 }
 
 function initAudio() {
@@ -104,9 +108,9 @@ function playBeep() {
 function toggleScan() {
   initAudio();
   const btn = document.getElementById('scanBtn'), status = document.getElementById('status');
-  if (location.protocol !== 'https:' && !['localhost','127.0.0.1'].includes(location.hostname)) {
-    status.textContent = "🔒 Требуется HTTPS. Используйте GitHub Pages ссылку.";
-    status.className = "err"; return;
+  
+  if (typeof Html5Qrcode === 'undefined') {
+      status.textContent = "❌ Библиотека не загружена"; status.className = "err"; return;
   }
 
   if (!isScanning) {
@@ -120,10 +124,7 @@ function toggleScan() {
       btn.textContent = "⏹ Остановить"; btn.style.background = "#FF5722";
       status.textContent = "🔍 Сканирую..."; status.style.color = "#2196F3"; status.className = "";
     }).catch(err => {
-      const raw = err?.message || err?.name || String(err);
-      let msg = "❌ Ошибка камеры: " + raw;
-      if (raw.includes("NotAllowed") || raw.includes("Permission")) msg = "🔒 Доступ запрещён.";
-      status.textContent = msg; status.className = "err";
+      status.textContent = "❌ Ошибка камеры: " + err; status.className = "err";
     });
   } else {
     scanner.stop().then(() => {
@@ -141,7 +142,6 @@ function onScanSuccess(text) {
     if (!data.pkg_number) throw new Error("Нет номера");
 
     if (currentMode === 'receive') {
-      // ЛОГИКА ПРИЕМКИ
       if (scannedData.some(s => s.pkg_number === data.pkg_number)) {
         status.textContent = "⚠️ Уже в списке"; status.className = "warn"; return;
       }
@@ -151,14 +151,10 @@ function onScanSuccess(text) {
       playBeep();
       status.textContent = "✅ Принято: " + data.pkg_number; status.style.color = "#4CAF50"; status.className = "";
     } else {
-      // ЛОГИКА ВЫДАЧИ
       if (issueList.some(s => s.pkg_number === data.pkg_number)) {
         status.textContent = "⚠️ Уже в списке"; status.className = "warn"; return;
       }
-      const issueItem = {
-        pkg_number: data.pkg_number,
-        time: new Date().toLocaleString("ru-RU")
-      };
+      const issueItem = { pkg_number: data.pkg_number, time: new Date().toLocaleString("ru-RU") };
       issueList.push(issueItem);
       localStorage.setItem('pkg_issue', JSON.stringify(issueList));
       playBeep();
@@ -192,7 +188,6 @@ function clearData() {
   scannedData = []; localStorage.removeItem('pkg_scan'); renderList();
   document.getElementById('status').textContent = "🗑 Очищено";
 }
-
 function clearIssueData() {
   if (!confirm("Очистить список выдачи?")) return;
   issueList = []; localStorage.removeItem('pkg_issue'); renderList();
@@ -209,21 +204,12 @@ function buildCSV() {
   });
   return csv;
 }
-
 function exportCSV() {
   if (!scannedData.length) return alert("Список пуст!");
   const blob = new Blob([buildCSV()], {type:"text/csv;charset=utf-8;"});
   const name = `Скан_Приемка_${new Date().toISOString().slice(0,10)}.csv`;
-  if (window.showSaveFilePicker) {
-    try {
-      const h = await window.showSaveFilePicker({suggestedName:name, types:[{description:"CSV", accept:{"text/csv":[".csv"]}}]});
-      const w = await h.createWritable(); await w.write(blob); await w.close();
-    } catch(e) { if(e.name!=="AbortError") alert("Ошибка: "+(e.message||e)); }
-  } else {
-    const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
-  }
+  const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
 }
-
 function shareFile() {
   if (!scannedData.length) return alert("Список пуст!");
   const file = new File([buildCSV()], `Скан_Приемка_${new Date().toISOString().slice(0,10)}.csv`, {type:"text/csv"});
@@ -232,32 +218,18 @@ function shareFile() {
   } else alert("Браузер не поддерживает отправку файлов.");
 }
 
-// --- ЛОГИКА ВЫДАЧИ (CSV) ---
 function buildIssueCSV() {
   const BOM = "\uFEFF";
   const h = ["№ ПОСЫЛКИ","ДАТА И ВРЕМЯ ВЫДАЧИ"];
   let csv = BOM + h.join(";") + "\n";
-  issueList.forEach(s => {
-    csv += `"${s.pkg_number}";"${s.time}"\n`;
-  });
+  issueList.forEach(s => { csv += `"${s.pkg_number}";"${s.time}"\n`; });
   return csv;
 }
-
 function exportIssueCSV() {
   if (!issueList.length) return alert("Список пуст!");
   const blob = new Blob([buildIssueCSV()], {type:"text/csv;charset=utf-8;"});
   const name = `Скан_Выдача_${new Date().toISOString().slice(0,10)}.csv`;
   const u = URL.createObjectURL(blob), a = document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
-}
-
-function initPWA() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  }
-  window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault(); deferredPrompt = e;
-    document.getElementById('pwaBtn').style.display = 'block';
-  });
 }
 </script>
 </body>
