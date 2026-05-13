@@ -3,31 +3,42 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>📦 Мобильный Учёт</title>
+<title>📦 SmartSklaD Mobile</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; -webkit-user-select: none; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f5f5f5; user-select: none; }
   h1 { text-align: center; font-size: 18px; margin: 10px 0; }
   #reader { width: 100%; max-width: 400px; margin: 0 auto; border: 2px solid #2196F3; border-radius: 8px; overflow: hidden; background: #000; min-height: 320px; }
   #reader video, #reader canvas { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
   #status { text-align: center; padding: 8px; font-weight: bold; color: #4CAF50; min-height: 24px; }
-  .list-container { max-height: 30vh; overflow-y: auto; margin: 10px 0; background: #fff; border-radius: 8px; padding: 5px; }
-  .list-item { padding: 8px; border-bottom: 1px solid #eee; font-size: 14px; display: flex; justify-content: space-between; }
+  
+  .mode-switch { display: flex; background: #ddd; border-radius: 20px; margin-bottom: 10px; padding: 4px; }
+  .mode-btn { flex: 1; text-align: center; padding: 10px; border-radius: 16px; color: #666; cursor: pointer; transition: 0.3s; border: none; background: transparent; font-weight: bold; }
+  .mode-btn.active { background: #fff; color: #2196F3; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+  
+  button { padding: 12px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; color: #fff; cursor: pointer; flex: 1; }
+  .btn-scan { background: #2196F3; width: 100%; max-width: 400px; margin: 10px auto; display: block; }
+  .btn-torch { background: #607D8B; width: 100%; max-width: 400px; margin: 5px auto 10px; display: none; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-exp { background: #4CAF50; } .btn-preview { background: #9C27B0; } .btn-clear { background: #F44336; }
+  
+  .list-container { max-height: 25vh; overflow-y: auto; margin: 10px 0; background: #fff; border-radius: 8px; padding: 5px; font-size: 13px; }
+  .list-item { padding: 5px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+  
+  /* Стили для окна просмотра */
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto; }
+  .modal-content { background: #fff; margin: 20px auto; padding: 15px; width: 90%; border-radius: 10px; max-width: 600px; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .data-table th, .data-table td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+  .data-table th { background-color: #f2f2f2; }
+  
   .form-box { background: #fff; padding: 10px; border-radius: 8px; margin: 10px 0; display: none; }
   .form-box input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-  .btn-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
-  button { padding: 12px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; color: #fff; cursor: pointer; flex: 1; }
-  button:active { opacity: 0.8; }
-  .btn-scan { background: #2196F3; width: 100%; max-width: 400px; margin: 10px auto; display: block; }
-  .btn-exp { background: #4CAF50; } .btn-cancel { background: #F44336; }
-  .mode-switch { display: flex; background: #ddd; border-radius: 20px; margin-bottom: 10px; padding: 4px; }
-  .mode-btn { flex: 1; text-align: center; padding: 10px; border-radius: 16px; color: #666; cursor: pointer; transition: 0.3s; border: none; background: transparent; }
-  .mode-btn.active { background: #fff; color: #2196F3; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-  .warn { color: #FF9800; } .err { color: #D32F2F; }
 </style>
 </head>
 <body>
 
-<h1>📦 Мобильный Учёт</h1>
+<h1>📦 SmartSklaD Mobile</h1>
 
 <div class="mode-switch">
   <button class="mode-btn active" onclick="setMode('receive')" id="btn-receive">📥 Приемка</button>
@@ -37,44 +48,71 @@
 
 <div id="reader"></div>
 <button class="btn-scan" id="scanBtn" onclick="toggleScan()">📷 Начать сканирование</button>
+<button class="btn-torch" id="torchBtn" onclick="toggleTorch()">🔦 Фонарик</button>
 <div id="status">🟢 Готов к работе</div>
 
-<!-- Форма для выдачи -->
 <div class="form-box" id="issueForm">
   <input type="text" id="issuerRank" placeholder="Звание (например: Сержант)">
   <input type="text" id="issuerName" placeholder="ФИО Выдавшего">
   <input type="tel" id="issuerPhone" placeholder="Телефон Выдавшего">
-  <button class="btn-exp" onclick="confirmIssue()">✅ Подтвердить и Скачать CSV</button>
+  <button class="btn-exp" onclick="confirmIssue()">✅ Подтвердить и Скачать</button>
 </div>
 
+<!-- Список последних действий -->
 <div class="list-container">
   <ul id="list"></ul>
 </div>
 
 <div class="btn-row" id="btn-receive-group">
   <button class="btn-exp" onclick="exportCSV('receive')">📄 Скачать Приемку</button>
-  <button class="btn-cancel" onclick="clearData()">🗑 Очистить</button>
+  <button class="btn-preview" onclick="openPreview()">👁️ Просмотр</button>
+  <button class="btn-clear" onclick="clearData()">🗑</button>
 </div>
 
 <div class="btn-row" id="btn-issue-group" style="display:none;">
-  <button class="btn-exp" onclick="showIssueForm()">📝 Ввести данные и Скачать</button>
-  <button class="btn-cancel" onclick="clearIssueData()">🗑 Очистить список</button>
+  <button class="btn-exp" onclick="showIssueForm()">📝 Ввести данные</button>
+  <button class="btn-clear" onclick="clearIssueData()">🗑</button>
 </div>
 
 <div class="btn-row" id="btn-cancel-group" style="display:none;">
   <button class="btn-exp" onclick="exportCSV('cancel')">📄 Скачать Отмену</button>
-  <button class="btn-cancel" onclick="clearCancelData()">🗑 Очистить</button>
+  <button class="btn-clear" onclick="clearCancelData()">🗑</button>
 </div>
 
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js?v=4"></script>
+<!-- Модальное окно Просмотра -->
+<div id="previewModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>📦 Отсканированные посылки</h3>
+      <button onclick="closePreview()" style="width:auto; padding:5px 15px; background:#F44336;">✕ Закрыть</button>
+    </div>
+    <div style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>№ Посылки</th>
+            <th>Позывной</th>
+            <th>Получатель</th>
+            <th>Отправитель</th>
+            <th>Тел. Отпр.</th>
+          </tr>
+        </thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+    <p style="text-align:center; color:#888; margin-top:10px;">Всего в памяти: <span id="totalCount">0</span></p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js?v=5"></script>
 <script>
 let scanner = null, isScanning = false, currentMode = 'receive';
 let receiveData = JSON.parse(localStorage.getItem('m_recv') || '[]');
 let issueData = JSON.parse(localStorage.getItem('m_issue') || '[]');
 let cancelData = JSON.parse(localStorage.getItem('m_cancel') || '[]');
-let audioCtx = null;
+let audioCtx = null, videoTrack = null, torchOn = false;
 
-window.onload = () => { renderList(); if(typeof Html5Qrcode==='undefined') document.getElementById('status').textContent="❌ Нет библиотеки"; };
+window.onload = () => { renderList(); if(typeof Html5Qrcode==='undefined') document.getElementById('status').textContent="❌ Нет сети"; };
 
 function setMode(mode) {
   currentMode = mode;
@@ -83,40 +121,61 @@ function setMode(mode) {
     document.getElementById(`btn-${m}-group`).style.display = m===mode ? 'flex' : 'none';
   });
   document.getElementById('issueForm').style.display = 'none';
-  renderList();
   document.getElementById('status').textContent = {receive:"🟢 Приемка", issue:"🔵 Выдача", cancel:"🟠 Отмена"}[mode];
+  renderList();
 }
 
 function initAudio() { if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
 function playBeep() {
   if(!audioCtx) return;
   const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-  o.connect(g); g.connect(audioCtx.destination);
-  o.type='sine'; o.frequency.value=1200;
-  g.gain.setValueAtTime(0.5, audioCtx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.15);
+  o.connect(g); g.connect(audioCtx.destination); o.frequency.value=1200;
+  g.gain.setValueAtTime(0.5, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.15);
   o.start(); o.stop(audioCtx.currentTime+0.15);
 }
 
 function toggleScan() {
   initAudio();
-  const btn=document.getElementById('scanBtn'), st=document.getElementById('status');
+  const btn=document.getElementById('scanBtn'), st=document.getElementById('status'), torchBtn=document.getElementById('torchBtn');
   if(!isScanning) {
     scanner=new Html5Qrcode("reader");
     scanner.start({facingMode:"environment"}, {fps:15, qrbox:{width:280,height:280}}, onScan, ()=>{})
-    .then(()=>{ isScanning=true; btn.textContent="⏹ Остановить"; btn.style.background="#FF5722"; st.textContent="🔍 Сканирую..."; })
-    .catch(e=>{ st.textContent="❌ "+e; st.className="err"; });
+    .then(()=>{ 
+      isScanning=true; btn.textContent="⏹ Стоп"; btn.style.background="#FF5722"; st.textContent="🔍 Сканирую..."; 
+      torchBtn.style.display = "block"; torchOn = false; torchBtn.textContent = "🔦 Фонарик"; torchBtn.style.background = "#607D8B";
+      const v = document.querySelector("#reader video"); if(v?.srcObject) videoTrack = v.srcObject.getVideoTracks()[0];
+    }).catch(e=>{ st.textContent="❌ "+e; st.className="err"; });
   } else {
-    scanner.stop().then(()=>{ isScanning=false; btn.textContent="📷 Начать сканирование"; btn.style.background="#2196F3"; st.textContent={receive:"🟢 Приемка", issue:"🔵 Выдача", cancel:"🟠 Отмена"}[currentMode]; st.className=""; });
+    if(videoTrack && torchOn) toggleTorch(); videoTrack = null;
+    scanner.stop().then(()=>{ 
+      isScanning=false; btn.textContent="📷 Начать"; btn.style.background="#2196F3"; torchBtn.style.display="none";
+      st.textContent={receive:"🟢 Приемка", issue:"🔵 Выдача", cancel:"🟠 Отмена"}[currentMode]; st.className=""; 
+    });
   }
+}
+
+function toggleTorch() {
+  if(!videoTrack) return alert("Нет видеопотока");
+  if(!videoTrack.getCapabilities?.()?.torch) return alert("Фонарик не поддерживается");
+  torchOn = !torchOn;
+  videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+  const btn=document.getElementById('torchBtn');
+  btn.textContent = torchOn ? "🔦 Выкл" : "🔦 Фонарик"; btn.style.background = torchOn ? "#FF9800" : "#607D8B";
 }
 
 function onScan(text) {
   try {
     const d=JSON.parse(text); if(!d.pkg_number) throw new Error("Нет номера");
     let list = currentMode==='receive'?receiveData : currentMode==='issue'?issueData : cancelData;
-    if(list.some(x=>x.pkg_number===d.pkg_number)) { document.getElementById('status').textContent="⚠️ Уже в списке"; return; }
-    list.push({pkg_number:d.pkg_number, time:new Date().toLocaleString("ru-RU")});
+    if(list.some(x=>x.pkg_number===d.pkg_number)) { document.getElementById('status').textContent="⚠️ Уже есть"; return; }
+    
+    // В режиме приемки сохраняем полные данные для просмотра
+    if(currentMode==='receive') {
+      list.push(d); // Сохраняем весь объект JSON
+    } else {
+      list.push({pkg_number:d.pkg_number, time:new Date().toLocaleString("ru-RU")});
+    }
+    
     localStorage.setItem(currentMode==='receive'?'m_recv':currentMode==='issue'?'m_issue':'m_cancel', JSON.stringify(list));
     playBeep(); document.getElementById('status').textContent="✅ "+d.pkg_number; renderList();
   } catch(e) { document.getElementById('status').textContent="❌ Ошибка QR"; document.getElementById('status').className="err"; }
@@ -125,29 +184,54 @@ function onScan(text) {
 function renderList() {
   const ul=document.getElementById('list'); ul.innerHTML="";
   const list = currentMode==='receive'?receiveData : currentMode==='issue'?issueData : cancelData;
-  list.slice().reverse().forEach(x => {
+  
+  // Показываем только последние 100 для скорости
+  list.slice(-100).reverse().forEach(x => {
     const li=document.createElement('li'); li.className='list-item';
-    li.innerHTML=`<span>${x.pkg_number}</span><span>${x.time}</span>`; ul.appendChild(li);
+    li.innerHTML=`<b>${x.pkg_number}</b> <span>${x.time||x.recipient_name||''}</span>`; 
+    ul.appendChild(li);
   });
 }
 
-function clearData() { if(confirm("Очистить?")) { receiveData=[]; localStorage.removeItem('m_recv'); renderList(); } }
-function clearIssueData() { if(confirm("Очистить?")) { issueData=[]; localStorage.removeItem('m_issue'); renderList(); document.getElementById('issueForm').style.display='none'; } }
-function clearCancelData() { if(confirm("Очистить?")) { cancelData=[]; localStorage.removeItem('m_cancel'); renderList(); } }
-
-function showIssueForm() {
-  if(!issueData.length) return alert("Список пуст!");
-  document.getElementById('issueForm').style.display='block';
-  document.getElementById('issuerRank').focus();
+// --- ФУНКЦИИ ПРОСМОТРА ---
+function openPreview() {
+  if(!receiveData.length) return alert("Нет отсканированных посылок для просмотра!");
+  const modal = document.getElementById('previewModal');
+  const tbody = document.getElementById('previewBody');
+  const countSpan = document.getElementById('totalCount');
+  tbody.innerHTML = "";
+  
+  receiveData.forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><b>${x.pkg_number}</b></td>
+      <td>${x.callsign||'-'}</td>
+      <td>${x.recipient_name||'-'}</td>
+      <td>${x.sender_name||'-'}</td>
+      <td>${x.sender_phone||'-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  countSpan.innerText = receiveData.length;
+  modal.style.display = 'block';
 }
 
+function closePreview() {
+  document.getElementById('previewModal').style.display = 'none';
+}
+
+function clearData() { if(confirm("Очистить Приемку?")) { receiveData=[]; localStorage.removeItem('m_recv'); renderList(); } }
+function clearIssueData() { if(confirm("Очистить Выдачу?")) { issueData=[]; localStorage.removeItem('m_issue'); renderList(); document.getElementById('issueForm').style.display='none'; } }
+function clearCancelData() { if(confirm("Очистить Отмену?")) { cancelData=[]; localStorage.removeItem('m_cancel'); renderList(); } }
+
+function showIssueForm() { if(!issueData.length) return alert("Список пуст!"); document.getElementById('issueForm').style.display='block'; document.getElementById('issuerRank').focus(); }
 function confirmIssue() {
-  const rank=document.getElementById('issuerRank').value.trim() || "Не указано";
-  const name=document.getElementById('issuerName').value.trim() || "Не указано";
-  const phone=document.getElementById('issuerPhone').value.trim() || "Не указано";
-  exportIssueCSV(rank, name, phone);
+  const r=document.getElementById('issuerRank').value.trim()||"Не указано";
+  const n=document.getElementById('issuerName').value.trim()||"Не указано";
+  const p=document.getElementById('issuerPhone').value.trim()||"Не указано";
+  exportIssueCSV(r, n, p);
   document.getElementById('issueForm').style.display='none';
-  document.getElementById('issuerRank').value=""; document.getElementById('issuerName').value=""; document.getElementById('issuerPhone').value="";
 }
 
 function exportCSV(type) {
@@ -159,8 +243,7 @@ function exportCSV(type) {
   let csv = BOM + h.join(";") + "\n";
   list.forEach(x => {
     if(type==='receive') {
-      // Для приемки берем полные данные из localStorage если они есть, иначе заглушки
-      csv += [x.pkg_number,x.recipient_name||"---",x.unit||"---",x.department||"---",x.callsign||"---",x.recipient_phone||"---",x.sender_name||"---",x.sender_phone||"---",x.date_created||"---",x.time].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";") + "\n";
+      csv += [x.pkg_number,x.recipient_name,x.unit,x.department,x.callsign,x.recipient_phone,x.sender_name,x.sender_phone,x.date_created,x.time||new Date().toLocaleString("ru-RU")].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";") + "\n";
     } else {
       csv += `"${x.pkg_number}";"${x.time}";"ОТМЕНА"\n`;
     }
@@ -172,9 +255,7 @@ function exportIssueCSV(rank, name, phone) {
   const BOM="\uFEFF";
   const h = ["№ ПОСЫЛКИ","ВРЕМЯ","ЗВАНИЕ","ФИО ВЫДАВШЕГО","ТЕЛЕФОН","ДЕЙСТВИЕ"];
   let csv = BOM + h.join(";") + "\n";
-  issueData.forEach(x => {
-    csv += `"${x.pkg_number}";"${x.time}";"${rank}";"${name}";"${phone}";"ВЫДАНО"\n`;
-  });
+  issueData.forEach(x => { csv += `"${x.pkg_number}";"${x.time}";"${rank}";"${name}";"${phone}";"ВЫДАНО"\n`; });
   download(csv, `Скан_Выдача_${new Date().toISOString().slice(0,10)}.csv`);
   issueData=[]; localStorage.removeItem('m_issue'); renderList();
 }
