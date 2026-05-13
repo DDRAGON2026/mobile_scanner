@@ -28,9 +28,9 @@
   .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto; }
   .modal-content { background: #fff; margin: 20px auto; padding: 15px; width: 90%; border-radius: 10px; max-width: 600px; }
   .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
-  .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .data-table th, .data-table td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-  .data-table th { background-color: #f2f2f2; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .data-table th, .data-table td { border: 1px solid #ddd; padding: 4px; text-align: left; }
+  .data-table th { background-color: #f2f2f2; font-weight: bold; }
   
   .form-box { background: #fff; padding: 10px; border-radius: 8px; margin: 10px 0; display: none; }
   .form-box input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
@@ -64,18 +64,20 @@
 </div>
 
 <div class="btn-row" id="btn-receive-group">
-  <button class="btn-exp" onclick="exportCSV('receive')">📄 Скачать Приемку</button>
+  <button class="btn-exp" onclick="exportCSV('receive')">📄 Скачать</button>
   <button class="btn-preview" onclick="openPreview()">👁️ Просмотр</button>
   <button class="btn-clear" onclick="clearData()">🗑</button>
 </div>
 
 <div class="btn-row" id="btn-issue-group" style="display:none;">
   <button class="btn-exp" onclick="showIssueForm()">📝 Ввести данные</button>
+  <button class="btn-preview" onclick="openPreview()">👁️ Просмотр</button>
   <button class="btn-clear" onclick="clearIssueData()">🗑</button>
 </div>
 
 <div class="btn-row" id="btn-cancel-group" style="display:none;">
-  <button class="btn-exp" onclick="exportCSV('cancel')">📄 Скачать Отмену</button>
+  <button class="btn-exp" onclick="exportCSV('cancel')">📄 Скачать</button>
+  <button class="btn-preview" onclick="openPreview()">👁️ Просмотр</button>
   <button class="btn-clear" onclick="clearCancelData()">🗑</button>
 </div>
 
@@ -90,11 +92,14 @@
       <table class="data-table">
         <thead>
           <tr>
+            <th>Часть</th>
             <th>№ Посылки</th>
-            <th>Позывной</th>
             <th>Получатель</th>
+            <th>Позывной</th>
+            <th>Тел. получ.</th>
+            <th>Подразд.</th>
             <th>Отправитель</th>
-            <th>Тел. Отпр.</th>
+            <th>Тел. отпр.</th>
           </tr>
         </thead>
         <tbody id="previewBody"></tbody>
@@ -165,17 +170,27 @@ function toggleTorch() {
 
 function onScan(text) {
   try {
-    const d=JSON.parse(text); if(!d.pkg_number) throw new Error("Нет номера");
+    const d=JSON.parse(text); 
+    if(!d.pkg_number) throw new Error("Нет номера");
+    
     let list = currentMode==='receive'?receiveData : currentMode==='issue'?issueData : cancelData;
     if(list.some(x=>x.pkg_number===d.pkg_number)) { document.getElementById('status').textContent="⚠️ Уже есть"; return; }
     
-    // В режиме приемки сохраняем полные данные для просмотра
-    if(currentMode==='receive') {
-      list.push(d); // Сохраняем весь объект JSON
-    } else {
-      list.push({pkg_number:d.pkg_number, time:new Date().toLocaleString("ru-RU")});
-    }
+    // Сохраняем полные данные для всех режимов
+    const item = {
+      pkg_number: d.pkg_number,
+      unit: d.unit || '',
+      recipient_name: d.recipient_name || '',
+      callsign: d.callsign || '',
+      recipient_phone: d.recipient_phone || '',
+      department: d.department || '',
+      sender_name: d.sender_name || '',
+      sender_phone: d.sender_phone || '',
+      date_created: d.date_created || '',
+      time: new Date().toLocaleString("ru-RU")
+    };
     
+    list.push(item);
     localStorage.setItem(currentMode==='receive'?'m_recv':currentMode==='issue'?'m_issue':'m_cancel', JSON.stringify(list));
     playBeep(); document.getElementById('status').textContent="✅ "+d.pkg_number; renderList();
   } catch(e) { document.getElementById('status').textContent="❌ Ошибка QR"; document.getElementById('status').className="err"; }
@@ -188,32 +203,37 @@ function renderList() {
   // Показываем только последние 100 для скорости
   list.slice(-100).reverse().forEach(x => {
     const li=document.createElement('li'); li.className='list-item';
-    li.innerHTML=`<b>${x.pkg_number}</b> <span>${x.time||x.recipient_name||''}</span>`; 
+    li.innerHTML=`<b>${x.pkg_number}</b> <span>${x.recipient_name||x.time||''}</span>`; 
     ul.appendChild(li);
   });
 }
 
 // --- ФУНКЦИИ ПРОСМОТРА ---
 function openPreview() {
-  if(!receiveData.length) return alert("Нет отсканированных посылок для просмотра!");
+  let list = currentMode==='receive'?receiveData : currentMode==='issue'?issueData : cancelData;
+  if(!list.length) return alert("Нет отсканированных посылок для просмотра!");
+  
   const modal = document.getElementById('previewModal');
   const tbody = document.getElementById('previewBody');
   const countSpan = document.getElementById('totalCount');
   tbody.innerHTML = "";
   
-  receiveData.forEach(x => {
+  list.forEach(x => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td>${x.unit||'-'}</td>
       <td><b>${x.pkg_number}</b></td>
-      <td>${x.callsign||'-'}</td>
       <td>${x.recipient_name||'-'}</td>
+      <td>${x.callsign||'-'}</td>
+      <td>${x.recipient_phone||'-'}</td>
+      <td>${x.department||'-'}</td>
       <td>${x.sender_name||'-'}</td>
       <td>${x.sender_phone||'-'}</td>
     `;
     tbody.appendChild(tr);
   });
   
-  countSpan.innerText = receiveData.length;
+  countSpan.innerText = list.length;
   modal.style.display = 'block';
 }
 
@@ -235,27 +255,40 @@ function confirmIssue() {
 }
 
 function exportCSV(type) {
-  let list = type==='receive'?receiveData : cancelData;
+  let list = type==='receive'?receiveData : type==='issue'?issueData : cancelData;
   if(!list.length) return alert("Пусто!");
   const BOM="\uFEFF";
-  const h = type==='receive' ? ["№ ПОСЫЛКИ","ФИО","ЧАСТЬ","ПОДРАЗДЕЛЕНИЕ","ПОЗЫВНОЙ","ТЕЛЕФОН","ОТПРАВИТЕЛЬ","ТЕЛ.ОТПР","ДАТА","ВРЕМЯ СК."] 
-                              : ["№ ПОСЫЛКИ","ВРЕМЯ","ДЕЙСТВИЕ"];
-  let csv = BOM + h.join(";") + "\n";
-  list.forEach(x => {
-    if(type==='receive') {
-      csv += [x.pkg_number,x.recipient_name,x.unit,x.department,x.callsign,x.recipient_phone,x.sender_name,x.sender_phone,x.date_created,x.time||new Date().toLocaleString("ru-RU")].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";") + "\n";
-    } else {
-      csv += `"${x.pkg_number}";"${x.time}";"ОТМЕНА"\n`;
-    }
-  });
-  download(csv, `Скан_${type==='receive'?'Приемка':'Отмена'}_${new Date().toISOString().slice(0,10)}.csv`);
+  
+  if(type==='issue') {
+    // Для выдачи особый формат с данными выдающего
+    const h = ["№ ПОСЫЛКИ","ВРЕМЯ","ЗВАНИЕ","ФИО ВЫДАВШЕГО","ТЕЛЕФОН","ДЕЙСТВИЕ"];
+    let csv = BOM + h.join(";") + "\n";
+    list.forEach(x => {
+      csv += `"${x.pkg_number}";"${x.time}";"${x.rank||''}";"${x.issuer_name||''}";"${x.issuer_phone||''}";"ВЫДАНО"\n`;
+    });
+    download(csv, `Скан_Выдача_${new Date().toISOString().slice(0,10)}.csv`);
+  } else {
+    // Для приемки и отмены - полные данные
+    const h = ["№ ПОСЫЛКИ","ЧАСТЬ","ПОЛУЧАТЕЛЬ","ПОЗЫВНОЙ","ТЕЛЕФОН","ПОДРАЗДЕЛЕНИЕ","ОТПРАВИТЕЛЬ","ТЕЛ.ОТПР","ДАТА","ВРЕМЯ"];
+    let csv = BOM + h.join(";") + "\n";
+    list.forEach(x => {
+      csv += [x.pkg_number,x.unit,x.recipient_name,x.callsign,x.recipient_phone,x.department,x.sender_name,x.sender_phone,x.date_created,x.time].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(";") + "\n";
+    });
+    download(csv, `Скан_${type==='receive'?'Приемка':'Отмена'}_${new Date().toISOString().slice(0,10)}.csv`);
+  }
 }
 
 function exportIssueCSV(rank, name, phone) {
   const BOM="\uFEFF";
   const h = ["№ ПОСЫЛКИ","ВРЕМЯ","ЗВАНИЕ","ФИО ВЫДАВШЕГО","ТЕЛЕФОН","ДЕЙСТВИЕ"];
   let csv = BOM + h.join(";") + "\n";
-  issueData.forEach(x => { csv += `"${x.pkg_number}";"${x.time}";"${rank}";"${name}";"${phone}";"ВЫДАНО"\n`; });
+  issueData.forEach(x => { 
+    csv += `"${x.pkg_number}";"${x.time}";"${rank}";"${name}";"${phone}";"ВЫДАНО"\n`; 
+    // Добавляем данные выдающего в объект
+    x.rank = rank;
+    x.issuer_name = name;
+    x.issuer_phone = phone;
+  });
   download(csv, `Скан_Выдача_${new Date().toISOString().slice(0,10)}.csv`);
   issueData=[]; localStorage.removeItem('m_issue'); renderList();
 }
